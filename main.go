@@ -2,80 +2,48 @@ package main
 
 import (
 	"encoding/json"
-	"io"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
-
-	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/cors"
 )
 
-func main() {
-	app := fiber.New()
-
-	app.Use(cors.New(cors.Config{
-		AllowOrigins: "*",
-		AllowMethods: "GET, OPTIONS",
-		AllowHeaders: "Content-Type, Accept",
-	}))
-
-	app.Get("/api/pathfinder2e/v1/healthcheck", func(c *fiber.Ctx) error {
-		return c.SendString("OK")
-	})
-
-	app.Get("/api/pathfinder2e/v1/distribution", func(c *fiber.Ctx) error {
-		modifier, err := strconv.Atoi(c.Query("modifier"))
-
-		if err != nil {
-			return fiber.ErrBadRequest
-		}
-
-		dc, err := strconv.Atoi(c.Query("dc"))
-
-		if err != nil {
-			return fiber.ErrBadRequest
-		}
-
-		result := check(dc, modifier)
-
-		return c.JSON(result)
-	})
-
-	http.HandleFunc("/api/pathfinder2e/v1/distribution", corsMiddleware(handleDistribution))
-
-	log.Fatal(app.Listen(":4000"))
+type Result struct {
+	CriticalFailures  int `json:"critical_failures"`
+	Failures          int `json:"failures"`
+	Successes         int `json:"successes"`
+	CriticalSuccesses int `json:"critical_successes"`
 }
 
-func handleDistribution(w http.ResponseWriter, r *http.Request) {
-	// Check if the request method is POST
-	if r.Method != http.MethodPost {
-		http.Error(w, "Invalid request method", http.StatusBadRequest)
-		return
-	}
+func main() {
 
-	// Get the request body
-	body, err := io.ReadAll(r.Body)
+	fmt.Printf("1")
 
-	if err != nil {
-		http.Error(w, "Failed to read request body", http.StatusInternalServerError)
-		return
-	}
+	http.HandleFunc("/api/pathfinder2e/v1/healthcheck", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("OK"))
+	})
 
-	// Convert the request body into a struct
-	var data map[string]any
-	err = json.Unmarshal(body, &data)
+	http.HandleFunc("/api/pathfinder2e/v1/distribution", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		modifier, err := strconv.Atoi(r.URL.Query().Get("modifier"))
 
-	if err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
+		if err != nil {
+			http.Error(w, "Invalid modifier", http.StatusBadRequest)
+			return
+		}
 
-	log.Println(data)
+		dc, err := strconv.Atoi(r.URL.Query().Get("dc"))
 
-	// Return a response
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Distribution handled successfully"))
+		if err != nil {
+			http.Error(w, "Invalid dc", http.StatusBadRequest)
+			return
+		}
+
+		result := calculateDegrees(dc, modifier)
+
+		json.NewEncoder(w).Encode(result)
+	}))
+
+	log.Fatal(http.ListenAndServe(":4000", nil))
 }
 
 func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
@@ -93,31 +61,52 @@ func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func check(dc int, modifier int) map[string]int {
-	criticalFailures := 0
-	failures := 0
-	successes := 0
-	criticalSuccesses := 0
+func calculateDegrees(dc int, modifier int) map[string]int {
+	var result Result
 
-	for i := 1; i <= 20; i++ {
-		if i+modifier <= dc-10 {
-			criticalFailures++
-		}
-		if i+modifier < dc && i+modifier > dc-10 {
-			failures++
-		}
-		if i+modifier >= dc && i+modifier < dc+10 {
-			successes++
-		}
-		if i+modifier >= dc+10 {
-			criticalSuccesses++
-		}
-	}
+	result.CriticalFailures = max(0, min(20, dc-10-modifier))
+	result.Failures = max(0, min(20, dc-modifier-1)) - result.CriticalFailures
+	result.Successes = max(0, min(20, dc+10-modifier-1)) - result.Failures - result.CriticalFailures
+	result.CriticalSuccesses = 20 - result.CriticalFailures - result.Failures - result.Successes
+
+	result = ajustNaturalOne(modifier, dc, result)
+	result = adjustNaturalTwenty(modifier, dc, result)
 
 	return map[string]int{
-		"critical_failures":  criticalFailures,
-		"failures":           failures,
-		"successes":          successes,
-		"critical_successes": criticalSuccesses,
+		"critical_failures":  result.CriticalFailures,
+		"failures":           result.Failures,
+		"successes":          result.Successes,
+		"critical_successes": result.CriticalSuccesses,
 	}
+}
+
+func ajustNaturalOne(modifier int, dc int, result Result) Result {
+	if modifier+1 >= dc+10 { // critical success -> success
+		result.CriticalSuccesses--
+		result.Successes++
+	} else if modifier+1 >= dc { // success -> failure
+		result.Successes--
+		result.Failures++
+	} else if modifier+1 >= dc-10 { // failure -> critical failure
+		result.Failures--
+		result.CriticalFailures++
+	}
+
+	return result
+}
+
+func adjustNaturalTwenty(modifier int, dc int, result Result) Result {
+
+	if modifier+20 <= dc-10 { // critical failures -> failures
+		result.CriticalFailures--
+		result.Failures++
+	} else if modifier+20 < dc { // failures -> successes
+		result.Failures--
+		result.Successes++
+	} else if modifier+20 < dc+10 { // successes -> critical successes
+		result.Successes--
+		result.CriticalSuccesses++
+	}
+
+	return result
 }
