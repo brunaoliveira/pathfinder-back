@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/brunaoliveira/pathfinder/services"
+	"brunaoliveira/pathfinder/services"
 )
 
 func main() {

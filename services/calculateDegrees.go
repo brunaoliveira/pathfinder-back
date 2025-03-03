@@ -1,6 +1,6 @@
 package services
 
-import result "github.com/brunaoliveira/pathfinder/models"
+import result "brunaoliveira/pathfinder/models"
 
 func CalculateDegrees(dc int, modifier int) map[string]int {
 	var result result.Result
