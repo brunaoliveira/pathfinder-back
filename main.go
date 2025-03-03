@@ -6,14 +6,9 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-)
 
-type Result struct {
-	CriticalFailures  int `json:"critical_failures"`
-	Failures          int `json:"failures"`
-	Successes         int `json:"successes"`
-	CriticalSuccesses int `json:"critical_successes"`
-}
+	"github.com/brunaoliveira/pathfinder/services"
+)
 
 func main() {
 
@@ -38,7 +33,7 @@ func main() {
 			return
 		}
 
-		result := calculateDegrees(dc, modifier)
+		result := services.CalculateDegrees(dc, modifier)
 
 		json.NewEncoder(w).Encode(result)
 	}))
@@ -59,54 +54,4 @@ func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 		next(w, r)
 	}
-}
-
-func calculateDegrees(dc int, modifier int) map[string]int {
-	var result Result
-
-	result.CriticalFailures = max(0, min(20, dc-10-modifier))
-	result.Failures = max(0, min(20, dc-modifier-1)) - result.CriticalFailures
-	result.Successes = max(0, min(20, dc+10-modifier-1)) - result.Failures - result.CriticalFailures
-	result.CriticalSuccesses = 20 - result.CriticalFailures - result.Failures - result.Successes
-
-	result = ajustNaturalOne(modifier, dc, result)
-	result = adjustNaturalTwenty(modifier, dc, result)
-
-	return map[string]int{
-		"critical_failures":  result.CriticalFailures,
-		"failures":           result.Failures,
-		"successes":          result.Successes,
-		"critical_successes": result.CriticalSuccesses,
-	}
-}
-
-func ajustNaturalOne(modifier int, dc int, result Result) Result {
-	if modifier+1 >= dc+10 { // critical success -> success
-		result.CriticalSuccesses--
-		result.Successes++
-	} else if modifier+1 >= dc { // success -> failure
-		result.Successes--
-		result.Failures++
-	} else if modifier+1 >= dc-10 { // failure -> critical failure
-		result.Failures--
-		result.CriticalFailures++
-	}
-
-	return result
-}
-
-func adjustNaturalTwenty(modifier int, dc int, result Result) Result {
-
-	if modifier+20 <= dc-10 { // critical failures -> failures
-		result.CriticalFailures--
-		result.Failures++
-	} else if modifier+20 < dc { // failures -> successes
-		result.Failures--
-		result.Successes++
-	} else if modifier+20 < dc+10 { // successes -> critical successes
-		result.Successes--
-		result.CriticalSuccesses++
-	}
-
-	return result
 }
